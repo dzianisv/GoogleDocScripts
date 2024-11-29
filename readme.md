@@ -42,4 +42,8 @@ Main function to determine which APY calculation function to call based on the U
 
 ## Usage
 
-To use this script, you can call the `getAverageApy` function in your Google Sheets:
+
+1. Save the script as a Google Script: Extensions -> Google Script
+![](doc/GoogleScript.png)
+2. To use this script, you can call the `getAverageApy` function in your Google Sheets:
+![](doc/GoogleSheet.png)
