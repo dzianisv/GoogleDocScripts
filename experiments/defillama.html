@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Liquidity Pools</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,500,700&display=swap">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/material-ui/4.11.4/material-ui.min.css">
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f5f5f5;
+        }
+
+        .table-container {
+            width: 98%;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            position: relative;
+            padding: 20px;
+        }
+
+        .spinner {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: none;
+        }
+
+        .loading {
+            background: linear-gradient(to right, #f0f0f0, #e0e0e0);
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: #f44336;
+            color: white;
+            padding: 16px;
+            border-radius: 4px;
+            display: none;
+            z-index: 1000;
+        }
+
+        .search-container {
+            margin-bottom: 20px;
+        }
+
+        .table-wrapper {
+            max-height: 400px;
+            /* Set a max height for the table */
+            overflow-y: auto;
+            /* Enable vertical scrolling */
+            border: 1px solid #ddd;
+            /* Optional: Add a border */
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            border: 1px solid #ddd;
+            padding: 8px;
+        }
+
+        th {
+            position: sticky;
+            /* Make the header sticky */
+            top: 0;
+            /* Stick to the top */
+            background: white;
+            /* Background color for the header */
+            z-index: 10;
+            /* Ensure it is above other content */
+        }
+    </style>
+</head>
+
+<body>
+    <div class="table-container" id="tableContainer">
+        <h2 style="text-align: center;">Liquidity Pools</h2>
+        <div class="search-container">
+            <input type="text" id="searchInput" placeholder="Search by token symbol..." />
+            <button id="searchButton">Search</button>
+        </div>
+        <div class="spinner" id="spinner">
+            <div class="loader"></div>
+        </div>
+        <div class="table-wrapper">
+            <table id="liquidityTable">
+                <thead>
+                    <tr>
+                        <th>Chain</th>
+                        <th>Project</th>
+                        <th>Symbol</th>
+                        <th>APY</th>
+                        <th>30d Mean APY</th>
+                        <th>Id</th>
+                        <th>Track</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Data will be populated here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const trackedPoolsKey = 'trackedPools';
+
+        async function fetchLiquidityPools() {
+            const spinner = document.getElementById('spinner');
+            const tableContainer = document.getElementById('tableContainer');
+            const toast = document.getElementById('toast');
+
+            try {
+                // Show spinner and apply loading style
+                spinner.style.display = 'block';
+                tableContainer.classList.add('loading');
+
+                // Check local storage for cached data
+                const cachedData = localStorage.getItem('cache.pools');
+                const cacheTimestamp = localStorage.getItem('cache.pools.timestamp');
+                let result;
+
+                // Check if cache is valid (1 day TTL)
+                if (!cacheTimestamp || (Date.now() - cacheTimestamp > 86400000)) {
+                    const response = await fetch('https://yields.llama.fi/pools');
+                    console.log(response);
+                    if (response.ok) {
+                        result = await response.json();
+                        console.log(result);
+                        try {
+                            // Cache the fetched data with timestamp
+                            localStorage.setItem('cache.pools', JSON.stringify(result));
+                            localStorage.setItem('cache.pools.timestamp', Date.now());
+                        } catch (err) {
+                            console.error(err);
+                        }
+                    } else {
+                        toast.innerText = response.statusText;
+                        toast.style.display = 'block';
+                        setTimeout(() => {
+                            toast.style.display = 'none';
+                        }, 5000);
+                    }
+                }
+
+                if (!result && cachedData) {
+                    result = JSON.parse(cachedData);
+                }
+
+                const tableBody = document.querySelector('#liquidityTable tbody');
+                const trackedPools = JSON.parse(localStorage.getItem(trackedPoolsKey)) || [];
+                console.log(result.data);   
+
+                result.data.forEach(pool => {
+                    const row = document.createElement('tr');
+                    const isChecked = trackedPools.includes(pool.symbol);
+                    row.innerHTML = `
+                        <td>${pool.chain}</td>
+                        <td>${pool.project}</td>
+                        <td>${pool.symbol}</td>
+                        <td>${pool.apy}</td>
+                        <td>${pool.apyMean30d || 'N/A'}</td>
+                        <td>${pool.pool}</td>
+                        <td>
+                            <input type="checkbox" class="track-checkbox" data-symbol="${pool.symbol}" ${isChecked ? 'checked' : ''} />
+                        </td>
+                    `;
+                    tableBody.appendChild(row);
+                });
+            } finally {
+                // Hide spinner and remove loading style
+                spinner.style.display = 'none';
+                tableContainer.classList.remove('loading');
+            }
+        }
+
+        function filterPools() {
+            const searchInput = document.getElementById('searchInput').value.toLowerCase();
+            const rows = document.querySelectorAll('#liquidityTable tbody tr');
+
+            rows.forEach(row => {
+                const chain = row.cells[0].textContent.toLowerCase();
+                const project = row.cells[1].textContent.toLowerCase();
+                const symbol = row.cells[2].textContent.toLowerCase();
+                row.style.display = chain.includes(searchInput) || project.includes(searchInput) || symbol.includes(searchInput) ? '' : 'none';
+            });
+        }
+
+        function trackPool(symbol) {
+            const trackedPools = JSON.parse(localStorage.getItem(trackedPoolsKey)) || [];
+            if (trackedPools.includes(symbol)) {
+                const index = trackedPools.indexOf(symbol);
+                trackedPools.splice(index, 1);
+            } else {
+                trackedPools.push(symbol);
+            }
+            localStorage.setItem(trackedPoolsKey, JSON.stringify(trackedPools));
+        }
+
+        document.getElementById('searchInput').addEventListener('input', filterPools);
+        document.getElementById('searchButton').addEventListener('click', filterPools);
+        document.addEventListener('change', (event) => {
+            if (event.target.classList.contains('track-checkbox')) {
+                trackPool(event.target.dataset.symbol);
+            }
+        });
+
+        // Fetch liquidity pools on page load
+        fetchLiquidityPools();
+    </script>
+</body>
+
+</html>
