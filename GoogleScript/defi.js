@@ -1,27 +1,48 @@
-function getBeefyAverageApy(url, days=30) {
+function getBeefyAverageApy(url, days = 30) {
+    var cache = CacheService.getScriptCache();
+
+    // Extract vault ID from the URL
     var vaultMatch = url.match(/vault\/([^/]+)/);
     if (!vaultMatch) {
         return "Invalid URL: Vault ID not found.";
     }
     var vault = vaultMatch[1];
 
-    var response = UrlFetchApp.fetch("https://data.beefy.finance/api/v2/apys?vault=" + vault + "&bucket=1d_1Y");
-    var data = JSON.parse(response.getContentText());
+    // Try to get cached data
+    var cacheKey = "beefyApy_" + vault;
+    var cachedData = cache.get(cacheKey);
 
-    var recentData = data.filter(function(item) {
-        var timestamp = item.t * 1000; // Convert to milliseconds
-        return Date.now() - timestamp <= days * 24 * 60 * 60 * 1000; // Last 90 days
-    });
+    try {
+        // Fetch new data from the API
+        var response = UrlFetchApp.fetch("https://data.beefy.finance/api/v2/apys?vault=" + vault + "&bucket=1d_1Y");
+        var data = JSON.parse(response.getContentText());
 
-    if (recentData.length === 0) {
-        return "No recent data available for this vault.";
+        // Filter data to recent entries
+        var recentData = data.filter(function(item) {
+            var timestamp = item.t * 1000; // Convert to milliseconds
+            return Date.now() - timestamp <= days * 24 * 60 * 60 * 1000;
+        });
+
+        if (recentData.length === 0) {
+            return "No recent data available for this vault.";
+        }
+
+        // Calculate average APY
+        var averageAPY = recentData.reduce(function(sum, item) {
+            return sum + item.v;
+        }, 0) / recentData.length;
+
+        // Cache the result for a specific duration (e.g., 6 hours)
+        cache.put(cacheKey, JSON.stringify({ averageAPY: averageAPY }), 21600); // 21600 seconds = 6 hours
+
+        return averageAPY;
+    } catch (error) {
+        // If the API request fails, return an error or fallback to cached value if available
+        if (cachedData) {
+            return JSON.parse(cachedData).averageAPY;
+        }
+        return "Failed to fetch APY data and no cache available.";
     }
-
-    var averageAPY = recentData.reduce(function(sum, item) {
-        return sum + item.v;
-    }, 0) / recentData.length;
-
-    return averageAPY;
 }
 
 function getDefillamaAverageApy(url, days) {
@@ -87,4 +108,38 @@ function getAverageApy(url, days = 30) {
     // Return an error message if the URL is not supported
     return "Error: Unsupported URL. Use URLs starting with 'https://app.beefy.com'.";
   }
+}
+
+/**
+ * Function to get the price of a cryptocurrency from CoinMarketCap.
+ * @param {string} name - The cryptocurrency name (e.g., "bitcoin", "ethereum").
+ * @return {string|null} - The price of the cryptocurrency as a string, or null if not found.
+ */
+function quoteCoinmarketcap(name) {
+  // Construct the URL using the cryptocurrency name
+  const url = `https://coinmarketcap.com/currencies/${name}`;
+  
+  try {
+    // Fetch the HTML content of the CoinMarketCap page
+    const response = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+    const html = response.getContentText();
+    
+    // Use a regular expression to extract the price using the `data-test` attribute
+    const priceRegex = /<span[^>]*data-test="text-cdp-price-display"[^>]*>([^<]+)<\/span>/;
+    const match = html.match(priceRegex);
+    
+    // If a match is found, return the price
+    if (match && match[1]) {
+      return match[1].trim(); // Trim any extra whitespace
+    } else {
+      // If the price wasn't found, return null
+      return "N/A"
+    }
+  } catch (error) {
+    throw Error(`Error fetching price for ${name}: ${error.message}`)
+  }
+}
+
+function test1() {
+  console.log(getAverageApy("https://app.beefy.com/vault/compound-base-usdc"));
 }
