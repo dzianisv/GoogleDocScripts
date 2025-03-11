@@ -1,5 +1,5 @@
 function getBeefyAverageApy(url, days = 30) {
-    var cache = CacheService.getScriptCache();
+    let cache = CacheService.getScriptCache();
 
     // Extract vault ID from the URL
     var vaultMatch = url.match(/vault\/([^/]+)/);
@@ -11,6 +11,10 @@ function getBeefyAverageApy(url, days = 30) {
     // Try to get cached data
     var cacheKey = "beefyApy_" + vault;
     var cachedData = cache.get(cacheKey);
+
+    if (cachedData) {
+      return JSON.parse(cachedData).averageAPY; 
+    }
 
     try {
         // Fetch new data from the API
@@ -37,10 +41,6 @@ function getBeefyAverageApy(url, days = 30) {
 
         return averageAPY;
     } catch (error) {
-        // If the API request fails, return an error or fallback to cached value if available
-        if (cachedData) {
-            return JSON.parse(cachedData).averageAPY;
-        }
         return "Failed to fetch APY data and no cache available.";
     }
 }
@@ -49,6 +49,8 @@ function getDefillamaAverageApy(url, days) {
     // Default days to 30 if not provided
     days = days || 30;
 
+    var cache = CacheService.getScriptCache();
+
     // Step 1: Extract the pool ID from the URL
     var poolIdMatch = url.match(/pool\/([a-f0-9-]+)/);
     if (!poolIdMatch) {
@@ -56,32 +58,48 @@ function getDefillamaAverageApy(url, days) {
     }
     var poolId = poolIdMatch[1];
 
-    // Step 2: Fetch JSON data from the endpoint
-    var response = UrlFetchApp.fetch("https://yields.llama.fi/chart/" + poolId);
-    var jsonResponse = JSON.parse(response.getContentText());
+    // Generate a cache key specific to the pool and days
+    var cacheKey = "defillamaApy_" + poolId + "_" + days;
+    var cachedData = cache.get(cacheKey);
 
-    // Check if the response status is success
-    if (jsonResponse.status !== "success") {
-        throw new Error("Failed to fetch data: " + jsonResponse.status);
+    // If cached data is available, return it
+    if (cachedData) {
+        return JSON.parse(cachedData).averageAPY;
     }
 
-    // Step 3: Calculate the average APY for the last 'days' days
-    var now = new Date();
-    var daysInMilliseconds = days * 24 * 60 * 60 * 1000;
-    var recentData = jsonResponse.data.filter(function(item) {
-        var timestamp = new Date(item.timestamp).getTime(); // Convert to milliseconds
-        return now.getTime() - timestamp <= daysInMilliseconds; // Filter for the last 'days' days
-    });
+    try {
+        // Step 2: Fetch JSON data from the endpoint
+        var response = UrlFetchApp.fetch("https://yields.llama.fi/chart/" + poolId);
+        var jsonResponse = JSON.parse(response.getContentText());
 
-    if (recentData.length === 0) {
-        return "No recent data available for this pool.";
+        // Check if the response status is success
+        if (jsonResponse.status !== "success") {
+            throw new Error("Failed to fetch data: " + jsonResponse.status);
+        }
+
+        // Step 3: Calculate the average APY for the last 'days' days
+        var now = new Date();
+        var daysInMilliseconds = days * 24 * 60 * 60 * 1000;
+        var recentData = jsonResponse.data.filter(function (item) {
+            var timestamp = new Date(item.timestamp).getTime(); // Convert to milliseconds
+            return now.getTime() - timestamp <= daysInMilliseconds; // Filter for the last 'days' days
+        });
+
+        if (recentData.length === 0) {
+            return "No recent data available for this pool.";
+        }
+
+        var averageAPY = recentData.reduce(function (sum, item) {
+            return sum + item.apy;
+        }, 0) / recentData.length;
+
+        // Cache the result for a specific duration (e.g., 6 hours)
+        cache.put(cacheKey, JSON.stringify({ averageAPY: averageAPY / 100 }), 21600); // 21600 seconds = 6 hours
+
+        return averageAPY / 100;
+    } catch (error) {
+        return "Failed to fetch APY data and no cache available.";
     }
-
-    var averageAPY = recentData.reduce(function(sum, item) {
-        return sum + item.apy;
-    }, 0) / recentData.length;
-
-    return averageAPY / 100;
 }
 
 /**
@@ -142,4 +160,5 @@ function quoteCoinmarketcap(name) {
 
 function test1() {
   console.log(getAverageApy("https://app.beefy.com/vault/compound-base-usdc"));
+  console.log(getAverageApy("https://defillama.com/yields/pool/e2f0e83e-e07b-44bd-9718-e25b96295468"));
 }
